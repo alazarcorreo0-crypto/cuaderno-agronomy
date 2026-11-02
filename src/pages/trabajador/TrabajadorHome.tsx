@@ -86,6 +86,12 @@ export default function TrabajadorHome() {
       try {
         const resultado = await api.muestras.mias(todayLocal())
         setBase(resultado.muestras)
+      const idsActivos = new Set(resultado.muestras.map((muestra) => muestra.id))
+      setPendientes((actuales) =>
+        Object.fromEntries(
+          Object.entries(actuales).filter(([muestraId]) => idsActivos.has(muestraId))
+        )
+      )
         setOffline(!navigator.onLine)
         setUltimaSync(new Date().toISOString())
       } catch (err) {
@@ -120,6 +126,12 @@ export default function TrabajadorHome() {
       hoy,
       (resultado) => {
         setBase(resultado.muestras)
+        const idsActivos = new Set(resultado.muestras.map((muestra) => muestra.id))
+        setPendientes((actuales) =>
+          Object.fromEntries(
+            Object.entries(actuales).filter(([muestraId]) => idsActivos.has(muestraId))
+          )
+        )
         setUltimaSync(new Date().toISOString())
         setOffline(!navigator.onLine)
         setError('')
@@ -173,8 +185,13 @@ export default function TrabajadorHome() {
   )
 
   const pendientesMarcados = useMemo(
-    () => Object.values(pendientes).filter((item) => item.estado !== 'pendiente'),
-    [pendientes]
+    () => {
+      const idsActivos = new Set(muestras.map((muestra) => muestra.id))
+      return Object.values(pendientes).filter(
+        (item) => item.estado !== 'pendiente' && idsActivos.has(item.muestra_id)
+      )
+    },
+    [muestras, pendientes]
   )
   const borradores = useMemo(
     () => Object.values(pendientes).filter((item) => item.estado === 'pendiente').length,
