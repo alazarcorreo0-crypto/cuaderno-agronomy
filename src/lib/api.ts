@@ -710,7 +710,7 @@ const apiLocal = {
         query(collection(db, COL.muestras), where('asignado_a', '==', user.id))
       )
       const rows = docsConId<MuestraBase>(snapshot)
-        .filter((muestra) => muestra.fecha_asignacion === dia || !muestra.enviado)
+        .filter((muestra) => !muestra.enviado)
         .sort(
           (a, b) =>
             a.fecha_asignacion.localeCompare(b.fecha_asignacion) ||
@@ -743,7 +743,7 @@ const apiLocal = {
             q,
             (snapshot) => {
               const rows = docsConId<MuestraBase>(snapshot)
-                .filter((muestra) => muestra.fecha_asignacion === dia || !muestra.enviado)
+                .filter((muestra) => !muestra.enviado)
                 .sort(
                   (a, b) =>
                     a.fecha_asignacion.localeCompare(b.fecha_asignacion) ||
@@ -777,6 +777,7 @@ const apiLocal = {
       asignado_a: ID
       numeros: string[]
       valores?: Record<string, string>
+      comentario?: string
       fecha?: string
     }) => {
       const supervisor = await requireSupervisor()
@@ -852,6 +853,7 @@ const apiLocal = {
         creado_en: timestamp,
         actualizado_en: timestamp,
         valores: { ...valores },
+        comentario: text(payload.comentario, 1000),
       }))
       await commitEnLotes(
         muestras.map((muestra) => (batch) =>
@@ -859,6 +861,37 @@ const apiLocal = {
         )
       )
       return { muestras: await hydrateMuestras(muestras) }
+    },
+    historialMio: async () => {
+      const user = await requireUser()
+      const snap = await getDocs(query(collection(db, COL.muestras), where('asignado_a', '==', user.id)))
+      const rows = docsConId<MuestraBase>(snap).filter((m) => m.enviado).sort((a,b) => (b.fecha_envio ?? '').localeCompare(a.fecha_envio ?? ''))
+      return { muestras: await hydrateMuestras(rows) }
+    },
+    regresarPendiente: async (id: ID) => {
+      const user = await requireUser(); const ref = doc(db, COL.muestras, id); const snap = await getDoc(ref)
+      if (!snap.exists()) throw new ApiError('Muestra no encontrada.',404)
+      const m = { ...(snap.data() as object), id:snap.id } as MuestraBase
+      if (m.asignado_a !== user.id || !m.enviado) throw new ApiError('No puedes editar esta muestra.',403)
+      await updateDoc(ref,{ estado:'pendiente', enviado:false, fecha_envio:null, fecha_marcado:null, hora_marcado:null, actualizado_en:nowIso() })
+      return { ok:true as const }
+    },
+    editar: async (id: ID, payload: Partial<Pick<MuestraBase,'numero_muestra'|'tipo_muestra_id'|'asignado_a'|'valores'|'comentario'>>) => {
+      await requireSupervisor(); const ref=doc(db,COL.muestras,id); const snap=await getDoc(ref)
+      if (!snap.exists()) throw new ApiError('Muestra no encontrada.',404)
+      if (payload.asignado_a) {
+        const worker = await getDoc(doc(db,COL.usuarios,payload.asignado_a))
+        if (!worker.exists() || (worker.data() as UsuarioRegistro).rol !== 'trabajador' || !(worker.data() as UsuarioRegistro).activo) throw new ApiError('Selecciona un trabajador activo.',400)
+      }
+      if (payload.tipo_muestra_id && !(await getDoc(doc(db,COL.tipos,payload.tipo_muestra_id))).exists()) throw new ApiError('Selecciona un tipo de muestra válido.',400)
+      if (payload.numero_muestra !== undefined && !text(payload.numero_muestra,40)) throw new ApiError('El número de muestra es obligatorio.',400)
+      await updateDoc(ref,{...payload, actualizado_en:nowIso()}); return {ok:true as const}
+    },
+    eliminar: async (id: ID, confirmarEnviada=false) => {
+      await requireSupervisor(); const ref=doc(db,COL.muestras,id); const snap=await getDoc(ref)
+      if (!snap.exists()) throw new ApiError('Muestra no encontrada.',404)
+      if ((snap.data() as MuestraBase).enviado && !confirmarEnviada) throw new ApiError('Confirma para eliminar una muestra enviada.',409)
+      await deleteDoc(ref); return {ok:true as const}
     },
   },
 
@@ -1007,6 +1040,7 @@ const apiLocal = {
           fecha_marcado: fechaMarcado,
           hora_marcado: horaMarcado,
           valores: valoresDetalle,
+          comentario: text(item.comentario, 1000),
         })
       }
 
@@ -1035,6 +1069,7 @@ const apiLocal = {
             fecha_envio: creadoEn,
             actualizado_en: creadoEn,
             valores: operacion.valores,
+            comentario: text(items.find((i) => i.muestra_id === operacion.muestra.id)?.comentario, 1000),
           })
         )
         escrituras.push((batch) =>
@@ -1065,6 +1100,7 @@ const apiLocal = {
       fecha_marcado: string | null
       hora_marcado: string | null
       valores: Record<string, string>
+      comentario?: string
     }) => {
       const user = await requireUser()
       if (user.rol !== 'trabajador') {
@@ -1078,6 +1114,7 @@ const apiLocal = {
         fecha_marcado: payload.fecha_marcado,
         hora_marcado: payload.hora_marcado,
         valores: { ...payload.valores },
+        comentario: text(payload.comentario, 1000),
         actualizado_en: nowIso(),
       }
       await setDoc(doc(db, COL.pendientes, pendiente.id), pendiente)

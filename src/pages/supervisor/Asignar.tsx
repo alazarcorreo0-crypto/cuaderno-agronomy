@@ -32,6 +32,7 @@ export default function Asignar() {
   const [fecha, setFecha] = useState(todayLocal())
   const [numerosTexto, setNumerosTexto] = useState('')
   const [valores, setValores] = useState<Record<string, string>>({})
+  const [comentario, setComentario] = useState('')
   const [enviando, setEnviando] = useState(false)
   const [aviso, setAviso] = useState<Aviso | null>(null)
 
@@ -102,6 +103,7 @@ export default function Asignar() {
         numeros,
         fecha,
         valores,
+        comentario,
       })
       const cantidad = resultado.muestras.length
       setAviso({
@@ -254,6 +256,8 @@ export default function Asignar() {
                 ) : null}
               </div>
             </div>
+
+            <div className="mt-4"><label htmlFor="nota-inicial" className="label">Comentario o nota inicial (opcional)</label><textarea id="nota-inicial" className="input min-h-20" maxLength={1000} value={comentario} onChange={e=>setComentario(e.target.value)} placeholder="Información útil para el trabajador" /></div>
 
             {tipoSeleccionado && tipoSeleccionado.campos.length > 0 ? (
               <details className="mt-4 rounded-xl border border-stone-200 bg-stone-50/60">

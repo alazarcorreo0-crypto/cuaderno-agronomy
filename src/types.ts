@@ -55,6 +55,7 @@ export interface MuestraBase {
   creado_en: string
   actualizado_en: string
   valores: Record<string, string>
+  comentario?: string
 }
 
 /** Muestra lista para mostrar: incluye los nombres y campos vigentes del tipo. */
@@ -102,6 +103,7 @@ export interface EnvioItem {
   fecha_marcado: string
   hora_marcado: string
   valores: EnvioValor[]
+  comentario?: string
 }
 
 export interface Envio {
@@ -125,6 +127,7 @@ export interface EnvioEntrante {
   fecha_marcado: string
   hora_marcado: string
   valores: Record<string, string>
+  comentario?: string
 }
 
 export interface Pendiente {
@@ -135,6 +138,7 @@ export interface Pendiente {
   fecha_marcado: string | null
   hora_marcado: string | null
   valores: Record<string, string>
+  comentario?: string
   actualizado_en: string
 }
 

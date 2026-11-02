@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { CheckCircle2, FilterX, RefreshCw, Search } from 'lucide-react'
+import { CheckCircle2, FilterX, RefreshCw, Search, Download, Pencil, Trash2 } from 'lucide-react'
 import { api } from '../../lib/api'
 import { formatFecha, formatFechaHora, formatHora, todayLocal } from '../../lib/dates'
 import { cx } from '../../lib/utils'
@@ -12,6 +12,7 @@ import {
   PageHeader,
 } from '../../components/ui'
 import { SampleValues } from '../../components/SampleValues'
+import { Modal } from '../../components/ui'
 
 export default function Reporte() {
   const [fecha, setFecha] = useState(todayLocal())
@@ -27,6 +28,12 @@ export default function Reporte() {
   const [refrescando, setRefrescando] = useState(false)
   const [error, setError] = useState('')
   const [actualizado, setActualizado] = useState<string | null>(null)
+  const [edicion, setEdicion] = useState<Muestra | null>(null)
+  const [editNumero, setEditNumero] = useState('')
+  const [editTrabajador, setEditTrabajador] = useState('')
+  const [editTipo, setEditTipo] = useState('')
+  const [editComentario, setEditComentario] = useState('')
+  const [editValores, setEditValores] = useState('{}')
   const requestRef = useRef(0)
 
   useEffect(() => {
@@ -56,7 +63,7 @@ export default function Reporte() {
     setError('')
     try {
       const resultado = await api.muestras.list({
-        fecha: fecha || undefined,
+        fecha: numero.trim() ? undefined : (fecha || undefined),
         trabajador: trabajador || undefined,
         tipo: tipo || undefined,
         estado,
@@ -110,12 +117,29 @@ export default function Reporte() {
     setNumero('')
   }
 
+  function exportar() {
+    const columnas = ['Numero','Tipo','Fecha asignacion','Fecha marcado','Trabajador','Estado','Comentario','Valores']
+    const filas = muestras.map(m => [m.numero_muestra,m.tipo_nombre ?? '',m.fecha_asignacion,m.fecha_marcado ?? '',m.trabajador_nombre ?? '',m.estado,m.comentario ?? '',m.campos.map(c=>`${c.nombre_campo}: ${m.valores[c.id] ?? ''}`).join(' | ')])
+    const csv = [columnas,...filas].map(row=>row.map(value=>`"${String(value).replaceAll('"','""')}"`).join(',')).join('\r\n')
+    const url=URL.createObjectURL(new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'})); const a=document.createElement('a'); a.href=url; a.download=`muestras-${fecha || 'todas'}.csv`; a.click(); URL.revokeObjectURL(url)
+  }
+
+  async function guardarEdicion() {
+    if (!edicion) return
+    let valores: Record<string,string>
+    try { valores=JSON.parse(editValores) as Record<string,string> } catch { setError('Los detalles deben ser un objeto JSON válido.'); return }
+    await api.muestras.editar(edicion.id,{numero_muestra:editNumero.trim(),asignado_a:editTrabajador,tipo_muestra_id:editTipo,comentario:editComentario,valores})
+    setEdicion(null); void cargar()
+  }
+
   return (
     <div>
       <PageHeader
         title="Reporte maestro"
         subtitle="Todas las muestras: hechas, no hechas y pendientes. Evita repetir trabajo."
         action={
+          <div className="flex gap-2">
+          <button type="button" className="btn-secondary" onClick={exportar}><Download className="h-4 w-4"/>Exportar CSV</button>
           <button
             type="button"
             className="btn-secondary"
@@ -125,6 +149,7 @@ export default function Reporte() {
             <RefreshCw className={cx('h-4 w-4', refrescando && 'animate-spin')} />
             Actualizar
           </button>
+          </div>
         }
       />
 
@@ -262,13 +287,14 @@ export default function Reporte() {
         />
       ) : (
         <div className="card overflow-hidden">
-          <div className="hidden border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500 md:grid md:grid-cols-[110px_1.4fr_1fr_120px_160px_110px] md:items-center md:gap-3">
+          <div className="hidden border-b border-stone-100 bg-stone-50/70 px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-stone-500 md:grid md:grid-cols-[100px_1.3fr_1fr_100px_140px_90px_90px] md:items-center md:gap-3">
             <span>Muestra</span>
             <span>Tipo / detalles</span>
             <span>Trabajador</span>
             <span>Estado</span>
             <span>Marcado</span>
             <span>Envío</span>
+            <span>Acciones</span>
           </div>
 
           <ul className="divide-y divide-stone-100">
@@ -284,7 +310,7 @@ export default function Reporte() {
                       : 'border-l-transparent'
                 )}
               >
-                <div className="hidden md:grid md:grid-cols-[110px_1.4fr_1fr_120px_160px_110px] md:items-center md:gap-3">
+                <div className="hidden md:grid md:grid-cols-[100px_1.3fr_1fr_100px_140px_90px_90px] md:items-center md:gap-3">
                   <div>
                     <p className="text-lg font-black tracking-tight text-stone-900">
                       #{muestra.numero_muestra}
@@ -298,6 +324,7 @@ export default function Reporte() {
                       {muestra.tipo_nombre ?? '—'}
                     </p>
                     <SampleValues muestra={muestra} max={2} className="mt-1" />
+                    {muestra.comentario ? <p className="mt-1 text-xs text-amber-800">Nota: {muestra.comentario}</p> : null}
                   </div>
                   <p className="text-sm text-stone-600">{muestra.trabajador_nombre ?? '—'}</p>
                   <div>
@@ -328,6 +355,7 @@ export default function Reporte() {
                       <span className="chip bg-stone-100 text-stone-500">Local</span>
                     )}
                   </div>
+                  <div className="flex gap-1"><button className="btn-ghost" title="Editar muestra" onClick={()=>{setEdicion(muestra);setEditNumero(muestra.numero_muestra);setEditTrabajador(muestra.asignado_a);setEditTipo(muestra.tipo_muestra_id);setEditComentario(muestra.comentario ?? '');setEditValores(JSON.stringify(muestra.valores,null,2))}}><Pencil className="h-4 w-4"/></button><button className="btn-ghost text-red-700" title="Eliminar" onClick={async()=>{if(confirm(`¿Eliminar #${muestra.numero_muestra}?${muestra.enviado?' Esta muestra ya fue enviada.':''}`)){await api.muestras.eliminar(muestra.id,muestra.enviado);void cargar()}}}><Trash2 className="h-4 w-4"/></button></div>
                 </div>
 
                 <div className="md:hidden">
@@ -362,6 +390,8 @@ export default function Reporte() {
                   </p>
                   <div className="mt-2">
                     <SampleValues muestra={muestra} max={3} />
+                    {muestra.comentario ? <p className="mt-2 text-xs text-amber-800">Nota: {muestra.comentario}</p> : null}
+                    <div className="mt-2 flex gap-2"><button className="btn-secondary" onClick={()=>{setEdicion(muestra);setEditNumero(muestra.numero_muestra);setEditTrabajador(muestra.asignado_a);setEditTipo(muestra.tipo_muestra_id);setEditComentario(muestra.comentario ?? '');setEditValores(JSON.stringify(muestra.valores,null,2))}}><Pencil className="h-4 w-4"/>Editar</button><button className="btn-secondary text-red-700" onClick={async()=>{if(confirm(`¿Eliminar #${muestra.numero_muestra}?${muestra.enviado?' Esta muestra ya fue enviada.':''}`)){await api.muestras.eliminar(muestra.id,muestra.enviado);void cargar()}}}><Trash2 className="h-4 w-4"/>Eliminar</button></div>
                   </div>
                 </div>
               </li>
@@ -369,6 +399,9 @@ export default function Reporte() {
           </ul>
         </div>
       )}
+      <Modal open={Boolean(edicion)} onClose={()=>setEdicion(null)} title="Editar muestra" footer={<div className="flex gap-2"><button className="btn-secondary flex-1" onClick={()=>setEdicion(null)}>Cancelar</button><button className="btn-primary flex-1" onClick={()=>void guardarEdicion()}>Guardar</button></div>}>
+        <div className="space-y-3"><label className="block"><span className="label">Número</span><input className="input" value={editNumero} onChange={e=>setEditNumero(e.target.value)}/></label><label className="block"><span className="label">Tipo</span><select className="input" value={editTipo} onChange={e=>setEditTipo(e.target.value)}>{tipos.map(t=><option key={t.id} value={t.id}>{t.nombre}</option>)}</select></label><label className="block"><span className="label">Trabajador asignado</span><select className="input" value={editTrabajador} onChange={e=>setEditTrabajador(e.target.value)}>{usuarios.filter(u=>u.rol==='trabajador').map(u=><option key={u.id} value={u.id}>{u.nombre}</option>)}</select></label><label className="block"><span className="label">Comentario</span><textarea className="input min-h-24" value={editComentario} onChange={e=>setEditComentario(e.target.value)}/></label><label className="block"><span className="label">Detalles de la muestra (JSON)</span><textarea className="input min-h-32 font-mono text-xs" value={editValores} onChange={e=>setEditValores(e.target.value)}/></label></div>
+      </Modal>
     </div>
   )
 }

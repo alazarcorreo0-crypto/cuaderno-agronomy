@@ -52,6 +52,9 @@ export default function TrabajadorHome() {
 
   const [detalleAbierto, setDetalleAbierto] = useState<Muestra | null>(null)
   const [valoresDetalle, setValoresDetalle] = useState<Record<string, string>>({})
+  const [comentarioDetalle, setComentarioDetalle] = useState('')
+  const [historial, setHistorial] = useState<Muestra[]>([])
+  const [verHistorial, setVerHistorial] = useState(false)
   const [guardandoDetalle, setGuardandoDetalle] = useState(false)
 
   const [confirmarEnvio, setConfirmarEnvio] = useState(false)
@@ -163,6 +166,7 @@ export default function TrabajadorHome() {
           fecha_marcado: pendiente.fecha_marcado ?? muestra.fecha_marcado,
           hora_marcado: pendiente.hora_marcado ?? muestra.hora_marcado,
           valores: { ...muestra.valores, ...pendiente.valores },
+          comentario: pendiente.comentario ?? muestra.comentario,
         }
       }),
     [base, pendientes]
@@ -202,6 +206,7 @@ export default function TrabajadorHome() {
       fecha_marcado: todayLocal(ahora),
       hora_marcado: timeNow(ahora),
       valores: { ...muestra.valores },
+      comentario: muestra.comentario,
       actualizado_en: ahora.toISOString(),
     }
     setPendientes((prev) => ({ ...prev, [muestra.id]: pendiente }))
@@ -212,6 +217,7 @@ export default function TrabajadorHome() {
         fecha_marcado: pendiente.fecha_marcado,
         hora_marcado: pendiente.hora_marcado,
         valores: pendiente.valores,
+        comentario: pendiente.comentario,
       })
       setPendientes((prev) => ({ ...prev, [muestra.id]: guardado.pendiente }))
     } catch {
@@ -225,6 +231,7 @@ export default function TrabajadorHome() {
   function abrirDetalle(muestra: Muestra) {
     setDetalleAbierto(muestra)
     setValoresDetalle({ ...muestra.valores })
+    setComentarioDetalle(muestra.comentario ?? '')
   }
 
   async function guardarDetalle() {
@@ -239,6 +246,7 @@ export default function TrabajadorHome() {
       fecha_marcado: detalleAbierto.fecha_marcado,
       hora_marcado: detalleAbierto.hora_marcado,
       valores: { ...valoresDetalle },
+      comentario: comentarioDetalle,
       actualizado_en: ahora.toISOString(),
     }
     setPendientes((prev) => ({ ...prev, [detalleAbierto.id]: pendiente }))
@@ -249,6 +257,7 @@ export default function TrabajadorHome() {
         fecha_marcado: detalleAbierto.fecha_marcado,
         hora_marcado: detalleAbierto.hora_marcado,
         valores: pendiente.valores,
+        comentario: pendiente.comentario,
       })
       setPendientes((prev) => ({ ...prev, [detalleAbierto.id]: guardado.pendiente }))
       setAviso({ tone: 'success', texto: 'Detalles guardados en este dispositivo.' })
@@ -292,6 +301,7 @@ export default function TrabajadorHome() {
       fecha_marcado: item.fecha_marcado ?? todayLocal(),
       hora_marcado: item.hora_marcado ?? timeNow(),
       valores: item.valores,
+      comentario: item.comentario,
     }))
 
     try {
@@ -308,20 +318,9 @@ export default function TrabajadorHome() {
       })
 
       const porId = new Map(pendientesMarcados.map((item) => [item.muestra_id, item]))
-      setBase((prev) =>
-        prev.map((muestra) => {
-          const marcada = porId.get(muestra.id)
-          if (!marcada) return muestra
-          return {
-            ...muestra,
-            estado: marcada.estado,
-            fecha_marcado: marcada.fecha_marcado,
-            hora_marcado: marcada.hora_marcado,
-            valores: marcada.valores,
-            enviado: true,
-          }
-        })
-      )
+      setBase((prev) => prev.filter((muestra) => !porId.has(muestra.id)))
+      setVerHistorial(true)
+      void api.muestras.historialMio().then((r) => setHistorial(r.muestras))
 
       setConfirmarEnvio(false)
       setOffline(!navigator.onLine)
@@ -393,6 +392,21 @@ export default function TrabajadorHome() {
       </header>
 
       <main className="mx-auto max-w-2xl px-4 pb-44 pt-4">
+        <div className="mb-4 grid grid-cols-2 gap-2">
+          <button className={cx('btn-secondary', !verHistorial && 'border-green-300 bg-green-50 text-green-800')} onClick={() => setVerHistorial(false)}>Mi lista</button>
+          <button className={cx('btn-secondary', verHistorial && 'border-green-300 bg-green-50 text-green-800')} onClick={() => { setVerHistorial(true); void api.muestras.historialMio().then(r => setHistorial(r.muestras)) }}>Mi Historial</button>
+        </div>
+        {verHistorial ? (
+          <section className="space-y-3">
+            {Object.entries(historial.reduce<Record<string, Muestra[]>>((acc,m) => { const day=(m.fecha_envio ?? '').slice(0,10) || 'Sin fecha'; (acc[day] ??= []).push(m); return acc },{})).map(([day,rows]) => (
+              <details key={day} className="card p-4">
+                <summary className="cursor-pointer font-bold text-stone-900">{formatFechaLarga(day)} · {rows.filter(m=>m.tipo_nombre?.toLowerCase().includes('cafo')).length} Cafos, {rows.filter(m=>m.tipo_nombre?.toLowerCase().includes('nemat')).length} Nematodos · {rows.length} muestras</summary>
+                <div className="mt-3 space-y-2">{rows.map(m => <article key={m.id} className="rounded-xl border border-stone-100 p-3"><div className="flex items-start justify-between gap-2"><div><b>#{m.numero_muestra}</b><p className="text-xs text-stone-500">{m.tipo_nombre} · {formatFechaHora(m.fecha_envio)}</p></div><EstadoBadge estado={m.estado}/></div><SampleValues muestra={m} max={6}/>{m.comentario ? <p className="mt-2 text-sm text-stone-600">Nota: {m.comentario}</p>:null}<button className="btn-secondary mt-3 w-full" onClick={async()=>{await api.muestras.regresarPendiente(m.id); setHistorial(prev=>prev.filter(x=>x.id!==m.id)); setVerHistorial(false); await cargarLista(true)}}>Regresar a pendientes</button></article>)}</div>
+              </details>
+            ))}
+            {!historial.length ? <EmptyState icon={<CheckCheck className="h-6 w-6"/>} title="Aún no tienes envíos" detail="Tus muestras enviadas aparecerán agrupadas aquí por día."/>:null}
+          </section>
+        ) : <>
         {muestras.length > 0 ? (
           <section className="card mb-4 p-4">
             <div className="flex items-end justify-between gap-3">
@@ -563,6 +577,7 @@ export default function TrabajadorHome() {
             Tus marcas quedan guardadas en este teléfono hasta que pulses ENVIAR.
           </p>
         ) : null}
+        </>}
       </main>
 
       <div className="fixed inset-x-0 bottom-0 z-30 border-t border-stone-200 bg-white/95 backdrop-blur">
@@ -646,6 +661,7 @@ export default function TrabajadorHome() {
               }
               idPrefix={`detalle-${detalleAbierto.id}`}
             />
+            <label className="block"><span className="label">Comentario o nota</span><textarea className="input min-h-24" maxLength={1000} value={comentarioDetalle} onChange={e=>setComentarioDetalle(e.target.value)} placeholder="Ej. No se pudo llegar al punto; muestra muy húmeda" /></label>
             <p className="text-[11px] text-stone-400">Los campos con * son requeridos.</p>
           </div>
         ) : null}
