@@ -1,149 +1,155 @@
 # Decisiones técnicas
 
-Este documento resume las decisiones de arquitectura y los criterios usados para resolver los puntos abiertos del cuaderno de campo.
+Este documento resume las decisiones de arquitectura del cuaderno de campo y los criterios usados para resolver los puntos abiertos.
 
-## 1. Stack y ejecución
+## 1. Aplicación frontend-only con Firestore
 
-### Backend Node + Express + `node:sqlite`
+La versión actual elimina por completo el backend Express y la base SQLite local. La app se compila como sitio estático y se publica en GitHub Pages; Firestore es la única fuente de verdad.
 
-Se eligió Node.js con Express y el módulo SQLite nativo (`node:sqlite`, `DatabaseSync`) en lugar de un ORM o de `better-sqlite3`:
+Motivos:
 
-- No requiere módulos nativos adicionales ni compilación de dependencias.
-- El archivo SQLite es fácil de respaldar y trasladar.
-- El modelo es pequeño y relacional; un ORM habría añadido complejidad sin beneficio.
-- El acceso es síncrono y el servidor es de un solo proceso, suficiente para el volumen previsto de un cuaderno de campo.
-
-La base de datos se migra con `server/schema.sql` al arrancar. El esquema usa `CREATE TABLE IF NOT EXISTS` e índices, y `npm run db:init` permite inicializarla fuera del arranque normal. `npm run db:reset` borra el archivo y vuelve a sembrar datos de ejemplo.
-
-### Frontend React + TypeScript + Vite + Tailwind
-
-- React 19 y TypeScript permiten tipar el contrato del API y los inputs dinámicos.
-- Vite ofrece una PWA estática sencilla de compilar y servir desde Express.
-- Tailwind acelera una interfaz mobile-first con botones grandes.
-- No se añadió una librería de estado global: la sesión vive en un contexto y cada pantalla carga lo que necesita. El tamaño del dominio no justifica Redux/Zustand.
-- React Router usa **HashRouter** porque el servidor sirve una SPA estática; con hash las rutas profundas no necesitan reglas de reescritura adicionales y funcionan al abrir la PWA.
-
-### Node 24
-
-El proyecto exige Node 24 o superior porque usa `node:sqlite` sin flags experimentales y `import.meta.dirname`. El entorno de referencia es Node 24.22.1 / npm 11.19.1.
-
-## 2. Modelo dinámico de tipos y campos
-
-El requisito principal era que **nada de tipos o campos estuviera hardcodeado**. El modelo es:
-
-- `tipos_muestra`: nombre, activo y orden.
-- `campos_tipo`: pertenece a un tipo, tiene nombre, tipo de dato (`texto`, `numero`, `seleccion`, `rango`), opciones JSON, obligatoriedad y orden.
-- `valores_muestra`: valor de un campo para una muestra concreta, con clave única `(muestra_id, campo_tipo_id)`.
+- GitHub Pages solo sirve archivos estáticos: no ejecuta Node ni mantiene una base SQLite.
+- Firestore ofrece persistencia en la nube, sincronización en tiempo real y caché offline sin levantar un servidor propio.
+- Se conserva React + TypeScript + Vite, que ya cubrían la interfaz móvil y la PWA.
 
 Consecuencias:
 
-- La interfaz de trabajador y supervisor se genera a partir de los campos que devuelve el API.
-- Cambiar el nombre de un campo no rompe valores anteriores porque el valor se guarda por ID de campo.
-- Cambiar las opciones de una selección no borra valores ya guardados; simplemente se muestran como texto si ya no coinciden con una opción actual.
-- Reordenar campos solo cambia el orden de presentación.
-- Al eliminar un tipo o un campo se eliminan en cascada sus valores, porque el campo deja de existir en el modelo. Para conservar historial se recomienda **desactivar** el tipo en lugar de borrarlo.
-- La validación de campos obligatorios se hace al enviar: una muestra marcada como **hecha** no se envía si le falta un campo obligatorio. El cliente muestra qué muestra y qué campos faltan, y el servidor aplica la misma regla como respaldo.
+- El cliente habla directamente con Firestore usando la configuración pública de Firebase.
+- Las validaciones de negocio se ejecutan en el cliente. No hay una segunda validación en servidor.
+- Las reglas de seguridad de Firestore son la única barrera de acceso. Como el login no usa Firebase Auth, actualmente las reglas permiten lectura y escritura global.
+- Los reportes se calculan en el cliente, no con SQL.
 
-### Cafos con profundidades independientes
+## 2. Inicialización de Firebase y caché offline
 
-“Cafos” no se modeló como un campo fijo con cuatro atributos en código. Se cargó como un tipo normal con cuatro campos independientes:
+`src/firebase.ts` inicializa la app con la configuración del proyecto `cuaderno-agronomy` y crea Firestore con:
 
-- Profundidad Norte
-- Profundidad Sur
-- Profundidad Este
-- Profundidad Oeste
+```ts
+initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+})
+```
 
-Cada uno es un campo `rango` con sus propias opciones y obligatoriedad. Si mañana se necesita otra orientación, otra profundidad o un campo adicional, se crea desde **Tipos** sin tocar el código ni migrar la base. El trabajador ve y completa cada profundidad por separado.
+Motivos:
 
-## 3. Autenticación y usuarios
+- `persistentLocalCache` mantiene una caché en IndexedDB que permite leer y escribir sin red.
+- `persistentMultipleTabManager` evita conflictos cuando la PWA se abre en varias pestañas.
+- Las escrituras hechas sin conexión quedan en cola y Firestore las sincroniza automáticamente.
+- Se exporta también `analytics` con `getAnalytics(app)` para habilitar Google Analytics.
 
-### PIN con hash y tokens firmados
+La primera carga de un dispositivo necesita conexión para descargar el shell y la configuración de Firebase. La caché no sustituye una base local completa: si se borran los datos del navegador, se pierden los cambios que aún no se hayan sincronizado.
 
-- Los PIN no se guardan en texto plano. Se usa `scrypt` con salt aleatorio por usuario y comparación `timingSafeEqual`.
-- El inicio de sesión devuelve un token firmado con HMAC-SHA256. El token incluye `uid`, `rol`, `nombre` y `exp`.
-- La vigencia es de 30 días para permitir trabajar varios días en campo sin volver a introducir el PIN. Cada petición vuelve a comprobar que el usuario exista y siga activo.
-- El secreto se toma de `AUTH_SECRET` o se genera una vez en `data/auth-secret.key` con permisos restringidos.
-- No se usa JWT de terceros para evitar una dependencia y mantener el formato explícito.
+## 3. Autenticación por PIN
 
-### Soft delete y protección del supervisor
+No se usa Firebase Authentication. El login consulta la colección `usuarios`, busca el nombre de forma normalizada y verifica el PIN contra un hash PBKDF2-SHA256.
 
-- Desactivar un usuario cambia `activo = 0`; no borra la fila. Así se conservan asignaciones, envíos e historial.
-- El login y cada petición autenticada rechazan usuarios inactivos.
-- Un supervisor no puede desactivarse ni cambiarse a trabajador a sí mismo, para evitar dejar el sistema sin administrador.
-- Los supervisores pueden crear otros supervisores, tal como se pidió.
-- El PIN se puede restablecer desde **Usuarios**; no existe recuperación automática ni envío por correo. La persona que administra comparte el nuevo PIN directamente.
-- El PIN admite de 4 a 32 caracteres, no solo números, para permitir contraseñas algo más fuertes sin complicar el ingreso en campo.
+- Los PIN **no** se guardan en texto plano.
+- Cada hash incluye salt aleatorio, iteraciones y el digest en Base64.
+- La sesión se guarda en `localStorage` solo con el ID del usuario, y `api.auth.me` vuelve a comprobar que el usuario exista y esté activo.
+- La vigencia de la sesión es indefinida hasta que el usuario cierre sesión o el navegador borre `localStorage`.
+- Un supervisor no puede desactivarse ni cambiarse a trabajador a sí mismo.
+- Los usuarios se desactivan con `activo: false`; no se borran, para conservar asignaciones, envíos e historial.
 
-### Limitaciones asumidas
+### Limitaciones de seguridad
 
-- No hay revocación individual de tokens: al desactivar al usuario se invalidan sus peticiones, pero un token de un usuario activo sigue vigente hasta su expiración.
-- No hay límite de intentos de login ni bloqueo por fuerza bruta. Para una exposición pública se recomienda añadir rate limiting en el reverse proxy o en Express.
-- No hay recuperación de PIN por el propio usuario; el flujo es asistido por el supervisor.
+Al no haber Firebase Auth, Firestore no puede identificar al usuario en las reglas. Las reglas de `firestore.rules` permiten lectura y escritura global para que la app funcione. Esto significa que:
 
-## 4. Offline-first del trabajador
+- Cualquier persona con la configuración pública de Firebase puede leer todos los documentos.
+- Los hashes de PIN son legibles y podrían atacarse con fuerza bruta offline.
+- Cualquier cliente podría escribir o borrar datos.
 
-### IndexedDB, no localStorage
+Es una solución de demo o despliegue controlado. Para producción hay que activar Firebase Auth, cambiar el login para obtener un ID token y reescribir las reglas con `request.auth`.
 
-Se usan dos almacenes en IndexedDB:
+## 4. Modelo de datos
 
-- `listas`: última lista recibida por usuario, con fecha y muestras.
-- `pendientes`: marcas y detalles aún no enviados, con clave `usuario_id:muestra_id` e índice por usuario.
+Se usan colecciones de Firestore con IDs de tipo string generados en el cliente:
 
-La lista cacheada permite abrir la app y seguir trabajando sin red después de una primera carga. Los pendientes se separan por usuario para que dos personas que compartan un teléfono no mezclen marcas.
+- `usuarios`
+- `tipos`
+- `muestras`
+- `envios`
+- `pendientes`
 
-### Flujo de marcado
+Decisiones:
 
-1. El trabajador pulsa HECHO o NO HECHO.
-2. Se crea o actualiza un pendiente con fecha/hora del dispositivo y los valores actuales de la muestra.
-3. El pendiente se guarda en IndexedDB y se refleja de inmediato en la lista.
-4. La lista visible combina la base del servidor/caché con los pendientes locales.
-5. Al pulsar **ENVIAR LISTA**, se envían **solo las muestras marcadas** (hechas o no hechas), no toda la lista.
-6. El servidor actualiza esas muestras y sus valores en una transacción, registra un `envio` con un snapshot del detalle y responde con la cantidad.
-7. Solo después de la confirmación del servidor se eliminan los pendientes locales.
+- **Campos dentro del documento del tipo** (`tipos/{id}.campos[]`), no una subcolección. Los tipos tienen pocos campos, se leen siempre juntos y así se evita una lectura adicional por cada tipo.
+- **IDs string** en todos los documentos. El ID del documento también se guarda como campo `id` para simplificar la hidratación y las referencias en la interfaz.
+- **Valores dinámicos** de cada muestra en un mapa `valores: { [campoId]: string }`. Si un campo se elimina, el valor se limpia de muestras y pendientes.
+- **Nombres derivados** (`tipo_nombre`, `trabajador_nombre`, `campos[]`) se calculan al leer, no se duplican en cada muestra, para evitar datos inconsistentes.
+- **Envíos con snapshot** (`detalle.items[]`) para conservar qué se envió aunque luego se corrija una muestra.
+- **Fechas/hora en ISO** generadas por el dispositivo y guardadas como strings. La fecha de marcado se separa de la fecha de envío.
 
-### Fecha y hora
+Los filtros de reportes, historial y listados se aplican en memoria después de `getDocs`. Para el volumen previsto de un cuaderno de campo es más simple que mantener índices compuestos; si el volumen crece, habría que paginar y mover filtros a consultas de Firestore.
 
-La fecha y hora de marcado se generan en el dispositivo, que es el que estaba en campo. El servidor las valida (`YYYY-MM-DD` y `HH:MM:SS`) y, si faltan, usa la fecha/hora local del servidor como respaldo. La fecha de envío se guarda aparte, de modo que el reporte distingue cuándo se marcó de cuándo se sincronizó.
+## 5. Seed automático
 
-### Lista del día y pendientes antiguos
+El seed vive en `src/lib/seed.ts` y se ejecuta al intentar iniciar sesión. Antes de buscar al usuario comprueba si `usuarios` está vacía; si lo está, crea en un batch:
 
-El endpoint del trabajador devuelve las muestras asignadas para la fecha consultada **más** cualquier muestra suya con `enviado = 0`, aunque sea de un día anterior. Esto evita que una marca quede inaccesible si el trabajador no envió la lista ese día.
+- Supervisor / PIN `1234`.
+- Juan Pérez `1111`, María López `2222`, Carlos Ruiz `3333`.
+- Tipos iniciales: Nematodos, Grid sample y Cafos.
+- Cafos con cuatro campos `rango` independientes: Profundidad Norte, Sur, Este y Oeste.
 
-### Sin sincronización automática
+Motivos:
 
-No se implementó Background Sync ni envío automático. El envío es una acción explícita del trabajador, con confirmación, porque en campo interesa que la persona sepa cuándo se sincronizó su lista y pueda corregir antes de enviar. Tampoco se añadieron notificaciones push, que quedaron fuera del alcance.
+- No hay backend que ejecute un script de inicialización.
+- GitHub Pages no puede ejecutar Node en el servidor.
+- Hacer el seed al primer login evita que un usuario nuevo se quede sin credenciales.
+- Es idempotente para el caso normal: si ya hay usuarios, no escribe nada.
+- Los IDs del seed son estables y los PIN se hashean en el navegador.
 
-### Conflictos
+Si se borra toda la colección `usuarios`, el siguiente login vuelve a sembrar los datos de ejemplo. Si solo se borran tipos, no se recrean automáticamente porque se considera una acción deliberada del supervisor.
 
-No hay resolución de conflictos multiusuario sobre la misma muestra: la asignación duplicada se bloquea y cada muestra pertenece a un trabajador. Si un supervisor reasigna una muestra `no_hecha`, la nueva asignación es una fila nueva; el historial anterior se conserva. Si el trabajador corrige una muestra ya enviada, el servidor vuelve a actualizar esa misma fila y registra un nuevo envío, que es el comportamiento esperado para campo.
+## 6. Flujo offline del trabajador
 
-## 5. Asignaciones y duplicados
+La app usa la caché persistente de Firestore y una colección `pendientes` para los borradores.
+
+1. El trabajador marca HECHO o NO HECHO.
+2. Se crea o actualiza un documento `pendientes/{usuarioId}__{muestraId}`.
+3. La lista visible combina la muestra de Firestore con el pendiente.
+4. Al pulsar **ENVIAR LISTA**, se escriben las muestras actualizadas, se crea el envío y se borran los pendientes.
+5. Si no hay red, todas esas escrituras quedan en la cola local de Firestore y se sincronizan al volver la conexión.
+
+Decisiones:
+
+- Los pendientes van a Firestore, no a un almacén local separado, para que toda la lógica de datos use el mismo mecanismo y la misma caché offline.
+- La clave del pendiente incluye el usuario para que dos personas que compartan un teléfono no mezclen marcas.
+- La fecha/hora de marcado se genera en el dispositivo, porque es el que estaba en campo.
+- El envío es explícito. No se usa Background Sync ni un envío automático.
+- Se valida en el cliente que una muestra HECHA tenga todos los campos obligatorios antes de escribir.
+- La escritura del envío se reparte en lotes de 400 operaciones para respetar el límite de 500 escrituras por batch de Firestore.
+
+La lista del trabajador usa `onSnapshot` con una consulta por `asignado_a`. El supervisor y los reportes usan `getDocs` al entrar o al pulsar actualizar; no se mantiene un websocket para todas las pantallas.
+
+## 7. Asignaciones y duplicados
 
 - Los números se normalizan, se deduplican y se limitan a 200 por asignación.
-- Se bloquea una asignación si ya existe una muestra con el mismo `numero_muestra` y `tipo_muestra_id` en estado `pendiente` o `hecha`.
-- Una muestra `no_hecha` sí puede volver a asignarse, porque el trabajo todavía está pendiente en la práctica.
-- No se impone una restricción única en la base de datos porque el historial de reasignaciones debe conservarse. La regla se aplica en la ruta de asignación.
-- La asignación solo admite trabajadores activos.
+- Se bloquea una asignación si ya existe una muestra con el mismo número y tipo en estado `pendiente` o `hecha`.
+- Una muestra `no_hecha` se puede volver a asignar.
+- No hay una restricción única en Firestore porque se conserva el historial de reasignaciones. La regla se aplica en la capa de API del cliente.
+- Solo se puede asignar a trabajadores activos.
 
-## 6. Reportes e historial
+## 8. Reportes, historial y envíos
 
-- El **Reporte maestro** consulta las muestras por fecha de asignación y muestra estado, fecha/hora de marcado, valores dinámicos y si fueron enviadas.
-- Se actualiza al entrar, al pulsar actualizar y con un refresco periódico mientras la pantalla está abierta. No se usan websockets para mantener el sistema simple.
-- **Historial** filtra por fecha de marcado, trabajador, tipo y número; está pensado para auditoría y consulta posterior.
-- **Envíos** guarda un snapshot JSON del detalle enviado, además de la cantidad y fecha/hora. Así queda registro de lo que el trabajador envió aunque luego se corrija la muestra.
-- El servidor es la fuente de verdad; el trabajador solo modifica sus propias filas.
+- El reporte maestro consulta las muestras por fecha de asignación y filtra por trabajador, tipo, estado, número y si fueron enviadas.
+- El historial filtra por fecha de marcado, trabajador, tipo y número.
+- La bandeja de envíos lee la colección `envios` y muestra el snapshot del detalle.
+- Todo se calcula en el cliente. No hay API ni SQL.
+- El supervisor ve los cambios cuando Firestore sincroniza y la pantalla vuelve a leer. La lista del trabajador sí es reactiva mediante `onSnapshot`.
 
-## 7. PWA
+## 9. PWA y GitHub Pages
 
-- `vite-plugin-pwa` en modo `generateSW` con `autoUpdate`.
-- Workbox precachea el shell (HTML, JS, CSS, iconos y webmanifest) para abrir la app sin red.
-- Las llamadas `/api` quedan fuera de la navegación precacheada (`navigateFallbackDenylist`) y no se cachean respuestas del API.
-- El manifest usa `display: standalone`, orientación vertical, tema verde y accesos directos a la lista del trabajador y al reporte.
-- Los iconos se generan localmente con `scripts/generate-icons.mjs` (192, 512, maskable 512, apple-touch 180 y favicon SVG).
-- La PWA debe servirse por HTTPS o `localhost` para que el service worker se registre en teléfonos. En una red local por HTTP puede funcionar en el escritorio de desarrollo, pero no cumple los requisitos de instalación de los navegadores móviles.
-- La app no incluye notificaciones push ni background sync, tal como se acordó.
+- `vite.config.ts` define `base: '/cuaderno-agronomy/'`.
+- El manifest usa ese mismo `start_url`, `scope`, iconos y accesos directos.
+- `index.html` y las imágenes usan `%BASE_URL%` o `publicAsset()` para respetar el subdirectorio.
+- Workbox precachea el shell con `navigateFallback` en `/cuaderno-agronomy/index.html`.
+- `registerSW({ immediate: true })` registra el service worker.
+- El workflow `.github/workflows/deploy.yml` usa `actions/checkout`, `actions/setup-node`, `npm install`, `npm run build`, `actions/upload-pages-artifact` y `actions/deploy-pages`.
+- En GitHub hay que seleccionar **GitHub Actions** como origen de Pages.
+- La app debe servirse por HTTPS o `localhost` para que el service worker y `crypto.subtle` funcionen en móviles.
 
-## 8. Interfaz y estilo
+## 10. Interfaz y estilo
 
 - Interfaz completamente en español.
 - Mobile-first: el trabajador usa botones grandes y una barra fija de envío; el supervisor tiene navegación inferior en móvil y lateral en pantallas amplias.
@@ -151,21 +157,11 @@ No hay resolución de conflictos multiusuario sobre la misma muestra: la asignac
 - Los campos dinámicos se renderizan con el mismo componente en la vista del trabajador y en los detalles iniciales de asignación.
 - No se añadieron gráficos, reportes avanzados, exportaciones ni funciones fuera del alcance solicitado.
 
-## 9. Datos de ejemplo
+## 11. Posibles mejoras futuras
 
-El seed crea:
-
-- Supervisores: `Supervisor` / PIN `1234`.
-- Trabajadores: Juan Pérez `1111`, María López `2222`, Carlos Ruiz `3333`.
-- Tipos: Nematodos, Grid sample y Cafos.
-- Campos de Cafos: cuatro `rango` independientes para Norte, Sur, Este y Oeste.
-
-El seed solo se ejecuta si la tabla `usuarios` está vacía. `npm run db:reset` es la forma explícita de volver al estado inicial.
-
-## 10. Posibles mejoras futuras (fuera de alcance)
-
-- Rate limiting y bloqueo temporal de login.
-- Revocación de tokens por dispositivo.
+- Firebase Authentication y reglas de seguridad por usuario/rol.
+- App Check para limitar el uso de la configuración pública.
+- Paginación e índices para muestras cuando el volumen crezca.
 - Exportación CSV/PDF del reporte.
-- Sincronización automática en segundo plano.
-- Múltiples capas de profundidad para Cafos si el negocio lo pide (se resolvería con más campos, no con código nuevo).
+- Sincronización en segundo plano y notificaciones.
+- Panel de auditoría de cambios.

@@ -60,7 +60,7 @@ const FORM_CAMPO_INICIAL: FormCampo = {
 
 export default function Tipos() {
   const [tipos, setTipos] = useState<TipoMuestra[]>([])
-  const [seleccionadoId, setSeleccionadoId] = useState<number | null>(null)
+  const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null)
   const [cargando, setCargando] = useState(true)
   const [errorCarga, setErrorCarga] = useState('')
   const [aviso, setAviso] = useState<Aviso | null>(null)
@@ -83,7 +83,7 @@ export default function Tipos() {
 
   const [confirmar, setConfirmar] = useState<{
     tipo: 'muestra' | 'campo'
-    id: number
+    id: string
     nombre: string
   } | null>(null)
   const [eliminando, setEliminando] = useState(false)

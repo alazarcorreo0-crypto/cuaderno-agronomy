@@ -1,0 +1,18 @@
+rules_version = '2';
+
+// IMPORTANTE:
+// La app usa login por PIN dentro del cliente y NO usa Firebase Auth.
+// Por eso Firestore no puede identificar al usuario en las reglas.
+// Estas reglas dejan la base abierta para que la PWA pueda leer y escribir.
+//
+// Esto sirve para una demo o un despliegue controlado. Para producción:
+// 1. Activa Firebase Authentication (por ejemplo, anónima).
+// 2. Cambia la autenticación de la app para usar Firebase Auth.
+// 3. Restringe las reglas por request.auth y por rol.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

@@ -27,8 +27,8 @@ export default function Asignar() {
   const [cargando, setCargando] = useState(true)
   const [errorCarga, setErrorCarga] = useState('')
 
-  const [trabajadorId, setTrabajadorId] = useState<number | ''>('')
-  const [tipoId, setTipoId] = useState<number | ''>('')
+  const [trabajadorId, setTrabajadorId] = useState<string>('')
+  const [tipoId, setTipoId] = useState<string>('')
   const [fecha, setFecha] = useState(todayLocal())
   const [numerosTexto, setNumerosTexto] = useState('')
   const [valores, setValores] = useState<Record<string, string>>({})
@@ -72,8 +72,7 @@ export default function Asignar() {
   const trabajadorSeleccionado = trabajadores.find((user) => user.id === trabajadorId)
 
   function cambiarTipo(valor: string) {
-    const id = valor ? Number(valor) : ''
-    setTipoId(id)
+    setTipoId(valor)
     setValores({})
     setAviso(null)
   }
@@ -98,8 +97,8 @@ export default function Asignar() {
     setEnviando(true)
     try {
       const resultado = await api.muestras.asignar({
-        tipo_muestra_id: Number(tipoId),
-        asignado_a: Number(trabajadorId),
+        tipo_muestra_id: tipoId,
+        asignado_a: trabajadorId,
         numeros,
         fecha,
         valores,
@@ -172,9 +171,7 @@ export default function Asignar() {
                     id="trabajador"
                     className="input appearance-none pl-11"
                     value={trabajadorId}
-                    onChange={(event) =>
-                      setTrabajadorId(event.target.value ? Number(event.target.value) : '')
-                    }
+                    onChange={(event) => setTrabajadorId(event.target.value)}
                   >
                     <option value="">Seleccionar trabajador…</option>
                     {trabajadores.map((trabajador) => (

@@ -15,8 +15,8 @@ import { SampleValues } from '../../components/SampleValues'
 
 export default function Reporte() {
   const [fecha, setFecha] = useState(todayLocal())
-  const [trabajador, setTrabajador] = useState<number | ''>('')
-  const [tipo, setTipo] = useState<number | ''>('')
+  const [trabajador, setTrabajador] = useState<string>('')
+  const [tipo, setTipo] = useState<string>('')
   const [estado, setEstado] = useState<EstadoMuestra | ''>('')
   const [numero, setNumero] = useState('')
 
@@ -151,7 +151,7 @@ export default function Reporte() {
               className="input py-2.5"
               value={trabajador}
               onChange={(event) =>
-                setTrabajador(event.target.value ? Number(event.target.value) : '')
+                setTrabajador(event.target.value)
               }
             >
               <option value="">Todos</option>
@@ -173,7 +173,7 @@ export default function Reporte() {
               id="filtro-tipo"
               className="input py-2.5"
               value={tipo}
-              onChange={(event) => setTipo(event.target.value ? Number(event.target.value) : '')}
+              onChange={(event) => setTipo(event.target.value)}
             >
               <option value="">Todos</option>
               {tipos.map((item) => (

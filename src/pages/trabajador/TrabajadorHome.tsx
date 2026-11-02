@@ -16,13 +16,6 @@ import {
 } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import { ApiError, api } from '../../lib/api'
-import {
-  deletePendientes,
-  getListaCache,
-  getPendientes,
-  savePendiente,
-  setListaCache,
-} from '../../lib/idb'
 import { formatFecha, formatFechaHora, formatFechaLarga, timeNow, todayLocal } from '../../lib/dates'
 import { cx } from '../../lib/utils'
 import type { Muestra, Pendiente } from '../../types'
@@ -33,10 +26,7 @@ import { SampleValues } from '../../components/SampleValues'
 type Aviso = { tone: 'success' | 'warning' | 'info' | 'error'; texto: string }
 
 function esErrorDeConexion(error: unknown) {
-  return (
-    error instanceof ApiError &&
-    (error.status === 0 || error.status === 502 || error.status === 503 || error.status === 504)
-  )
+  return error instanceof ApiError && error.status === 0
 }
 
 function faltanCamposObligatorios(muestra: Muestra, valores: Record<string, string>) {
@@ -52,7 +42,7 @@ export default function TrabajadorHome() {
   const hoy = todayLocal()
 
   const [base, setBase] = useState<Muestra[]>([])
-  const [pendientes, setPendientes] = useState<Record<number, Pendiente>>({})
+  const [pendientes, setPendientes] = useState<Record<string, Pendiente>>({})
   const [cargando, setCargando] = useState(true)
   const [refrescando, setRefrescando] = useState(false)
   const [offline, setOffline] = useState(!navigator.onLine)
@@ -71,14 +61,14 @@ export default function TrabajadorHome() {
   const cargarPendientes = useCallback(async () => {
     if (!usuarioId) return
     try {
-      const items = await getPendientes(usuarioId)
-      const mapa: Record<number, Pendiente> = {}
-      for (const item of items) mapa[item.muestra_id] = item
+      const items = await api.pendientes.list()
+      const mapa: Record<string, Pendiente> = {}
+      for (const item of items.pendientes) mapa[item.muestra_id] = item
       setPendientes(mapa)
     } catch {
       setAviso({
         tone: 'warning',
-        texto: 'No se pudo leer el almacenamiento local del teléfono. Evita cerrar la app.',
+        texto: 'No se pudieron leer los cambios guardados en este dispositivo.',
       })
     }
   }, [usuarioId])
@@ -93,31 +83,11 @@ export default function TrabajadorHome() {
       try {
         const resultado = await api.muestras.mias(todayLocal())
         setBase(resultado.muestras)
-        setOffline(false)
-        const ahora = new Date().toISOString()
-        setUltimaSync(ahora)
-        try {
-          await setListaCache(usuarioId, resultado.fecha, resultado.muestras)
-        } catch {
-          // La app sigue funcionando en memoria aunque IndexedDB no esté disponible.
-        }
+        setOffline(!navigator.onLine)
+        setUltimaSync(new Date().toISOString())
       } catch (err) {
-        if (esErrorDeConexion(err)) {
-          setOffline(true)
-          try {
-            const cache = await getListaCache(usuarioId)
-            if (cache) {
-              setBase(cache.muestras)
-              setUltimaSync(cache.actualizado_en)
-            } else {
-              setError('Sin conexión y todavía no hay una lista guardada en este teléfono.')
-            }
-          } catch {
-            setError('Sin conexión y no se pudo leer la lista guardada en este teléfono.')
-          }
-        } else {
-          setError(err instanceof Error ? err.message : 'No se pudo cargar la lista.')
-        }
+        if (esErrorDeConexion(err)) setOffline(true)
+        setError(err instanceof Error ? err.message : 'No se pudo cargar la lista.')
       } finally {
         setCargando(false)
         setRefrescando(false)
@@ -130,25 +100,37 @@ export default function TrabajadorHome() {
     if (!usuarioId) return
     let activo = true
 
-    async function iniciar() {
-      try {
-        const cache = await getListaCache(usuarioId as number)
-        if (activo && cache) {
-          setBase(cache.muestras)
-          setUltimaSync(cache.actualizado_en)
-        }
-      } catch {
-        // Sin caché local: se intentará la red.
-      }
+    void (async () => {
       await cargarPendientes()
       if (activo) await cargarLista(true)
-    }
+    })()
 
-    void iniciar()
     return () => {
       activo = false
     }
   }, [usuarioId, cargarPendientes, cargarLista])
+
+  // Sincronización en tiempo real desde Firestore (también usa la caché offline).
+  useEffect(() => {
+    if (!usuarioId) return
+    return api.muestras.observarMias(
+      hoy,
+      (resultado) => {
+        setBase(resultado.muestras)
+        setUltimaSync(new Date().toISOString())
+        setOffline(!navigator.onLine)
+        setError('')
+        setCargando(false)
+      },
+      (err) => {
+        if (esErrorDeConexion(err)) setOffline(true)
+        else if (!(err instanceof ApiError && err.status === 401)) {
+          setError(err instanceof Error ? err.message : 'No se pudo actualizar la lista.')
+        }
+        setCargando(false)
+      }
+    )
+  }, [usuarioId, hoy])
 
   useEffect(() => {
     const alVolverOnline = () => {
@@ -213,7 +195,7 @@ export default function TrabajadorHome() {
     if (!usuarioId) return
     const ahora = new Date()
     const pendiente: Pendiente = {
-      id: `${usuarioId}:${muestra.id}`,
+      id: `${usuarioId}__${muestra.id}`,
       usuario_id: usuarioId,
       muestra_id: muestra.id,
       estado,
@@ -224,11 +206,18 @@ export default function TrabajadorHome() {
     }
     setPendientes((prev) => ({ ...prev, [muestra.id]: pendiente }))
     try {
-      await savePendiente(pendiente)
+      const guardado = await api.pendientes.guardar({
+        muestra_id: muestra.id,
+        estado,
+        fecha_marcado: pendiente.fecha_marcado,
+        hora_marcado: pendiente.hora_marcado,
+        valores: pendiente.valores,
+      })
+      setPendientes((prev) => ({ ...prev, [muestra.id]: guardado.pendiente }))
     } catch {
       setAviso({
         tone: 'warning',
-        texto: 'Se marcó, pero no se pudo guardar en el teléfono. No cierres la app hasta enviar.',
+        texto: 'Se marcó, pero no se pudo guardar en este dispositivo. No cierres la app hasta enviar.',
       })
     }
   }
@@ -243,7 +232,7 @@ export default function TrabajadorHome() {
     setGuardandoDetalle(true)
     const ahora = new Date()
     const pendiente: Pendiente = {
-      id: `${usuarioId}:${detalleAbierto.id}`,
+      id: `${usuarioId}__${detalleAbierto.id}`,
       usuario_id: usuarioId,
       muestra_id: detalleAbierto.id,
       estado: detalleAbierto.estado,
@@ -254,8 +243,15 @@ export default function TrabajadorHome() {
     }
     setPendientes((prev) => ({ ...prev, [detalleAbierto.id]: pendiente }))
     try {
-      await savePendiente(pendiente)
-      setAviso({ tone: 'success', texto: 'Detalles guardados en este teléfono.' })
+      const guardado = await api.pendientes.guardar({
+        muestra_id: detalleAbierto.id,
+        estado: detalleAbierto.estado,
+        fecha_marcado: detalleAbierto.fecha_marcado,
+        hora_marcado: detalleAbierto.hora_marcado,
+        valores: pendiente.valores,
+      })
+      setPendientes((prev) => ({ ...prev, [detalleAbierto.id]: guardado.pendiente }))
+      setAviso({ tone: 'success', texto: 'Detalles guardados en este dispositivo.' })
     } catch {
       setAviso({
         tone: 'warning',
@@ -305,12 +301,6 @@ export default function TrabajadorHome() {
         items,
       })
 
-      try {
-        await deletePendientes(pendientesMarcados.map((item) => item.id))
-      } catch {
-        // Si falla IndexedDB, igual limpiamos el estado en memoria tras el envío exitoso.
-      }
-
       setPendientes((prev) => {
         const siguiente = { ...prev }
         for (const item of pendientesMarcados) delete siguiente[item.muestra_id]
@@ -334,10 +324,12 @@ export default function TrabajadorHome() {
       )
 
       setConfirmarEnvio(false)
-      setOffline(false)
+      setOffline(!navigator.onLine)
       setAviso({
         tone: 'success',
-        texto: `Lista enviada: ${resultado.cantidad} muestra${resultado.cantidad === 1 ? '' : 's'}.`,
+        texto: navigator.onLine
+          ? `Lista enviada: ${resultado.cantidad} muestra${resultado.cantidad === 1 ? '' : 's'}.`
+          : `Lista guardada: ${resultado.cantidad} muestra${resultado.cantidad === 1 ? '' : 's'}. Se sincronizará al volver la conexión.`,
       })
       void cargarLista(true)
     } catch (err) {
@@ -715,8 +707,8 @@ export default function TrabajadorHome() {
 
           {offline ? (
             <Alert tone="warning">
-              No hay conexión. Tus marcas están a salvo en el teléfono; conéctate y vuelve a
-              intentar.
+              No hay conexión. Puedes enviar igualmente: la lista se guardará en este
+              dispositivo y se sincronizará automáticamente al volver la red.
             </Alert>
           ) : null}
 

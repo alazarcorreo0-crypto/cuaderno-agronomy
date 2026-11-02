@@ -17,7 +17,7 @@ export function CampoInputs({
 }: {
   campos: Campo[]
   valores: Record<string, string>
-  onChange: (campoId: number, valor: string) => void
+  onChange: (campoId: string, valor: string) => void
   idPrefix: string
   disabled?: boolean
 }) {

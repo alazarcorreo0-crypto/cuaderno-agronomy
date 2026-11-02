@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { KeyRound, Loader2, LogIn, UserRound } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
 import { Alert } from '../components/ui'
+import { publicAsset } from '../lib/utils'
 
 export default function Login() {
   const { usuario, ingresar } = useAuth()
@@ -43,7 +44,11 @@ export default function Login() {
         <div className="pointer-events-none absolute -right-16 -top-20 h-64 w-64 rounded-full bg-white/5" />
         <div className="pointer-events-none absolute -bottom-24 -left-10 h-56 w-56 rounded-full bg-white/5" />
         <div className="mx-auto flex max-w-md flex-col items-center pt-12 text-center">
-          <img src="/icons/icon-192.png" alt="" className="h-20 w-20 rounded-2xl shadow-lg" />
+          <img
+            src={publicAsset('icons/icon-192.png')}
+            alt=""
+            className="h-20 w-20 rounded-2xl shadow-lg"
+          />
           <h1 className="mt-4 text-2xl font-bold tracking-tight text-white">Cuaderno de Campo</h1>
           <p className="mt-1 text-sm text-green-100">Muestras claras, un solo listado.</p>
         </div>
@@ -87,7 +92,6 @@ export default function Login() {
                   id="pin"
                   name="pin"
                   type="password"
-                  inputMode="numeric"
                   className="input pl-11 tracking-[0.3em]"
                   autoComplete="current-password"
                   placeholder="••••"

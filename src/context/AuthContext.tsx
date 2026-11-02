@@ -56,7 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
       .catch((error: unknown) => {
         if (cancelled) return
-        if (error instanceof ApiError && error.status === 401) limpiarSesion()
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          limpiarSesion()
+        }
         // Sin red: se conserva la sesión y la lista local para trabajar offline.
       })
       .finally(() => {

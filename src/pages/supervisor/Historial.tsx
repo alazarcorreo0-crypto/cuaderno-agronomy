@@ -9,8 +9,8 @@ import { SampleValues } from '../../components/SampleValues'
 
 export default function Historial() {
   const [fecha, setFecha] = useState(todayLocal())
-  const [trabajador, setTrabajador] = useState<number | ''>('')
-  const [tipo, setTipo] = useState<number | ''>('')
+  const [trabajador, setTrabajador] = useState<string>('')
+  const [tipo, setTipo] = useState<string>('')
   const [numero, setNumero] = useState('')
 
   const [muestras, setMuestras] = useState<Muestra[]>([])
@@ -119,7 +119,7 @@ export default function Historial() {
               className="input py-2.5"
               value={trabajador}
               onChange={(event) =>
-                setTrabajador(event.target.value ? Number(event.target.value) : '')
+                setTrabajador(event.target.value)
               }
             >
               <option value="">Todos</option>
@@ -141,7 +141,7 @@ export default function Historial() {
               id="hist-tipo"
               className="input py-2.5"
               value={tipo}
-              onChange={(event) => setTipo(event.target.value ? Number(event.target.value) : '')}
+              onChange={(event) => setTipo(event.target.value)}
             >
               <option value="">Todos</option>
               {tipos.map((item) => (

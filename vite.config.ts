@@ -2,7 +2,10 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const base = '/cuaderno-agronomy/'
+
 export default defineConfig({
+  base,
   plugins: [
     react(),
     VitePWA({
@@ -10,6 +13,7 @@ export default defineConfig({
       injectRegister: null,
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
+        id: base,
         name: 'Cuaderno de Campo',
         short_name: 'Cuaderno',
         description: 'Gestión rápida de muestras de campo: asignación, marcado offline y reporte maestro.',
@@ -18,23 +22,23 @@ export default defineConfig({
         background_color: '#f5f5f4',
         display: 'standalone',
         orientation: 'portrait',
-        start_url: '/',
-        scope: '/',
+        start_url: base,
+        scope: base,
         icons: [
           {
-            src: '/icons/icon-192.png',
+            src: `${base}icons/icon-192.png`,
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/icons/icon-512.png',
+            src: `${base}icons/icon-512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any',
           },
           {
-            src: '/icons/icon-maskable-512.png',
+            src: `${base}icons/icon-maskable-512.png`,
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable',
@@ -43,20 +47,19 @@ export default defineConfig({
         shortcuts: [
           {
             name: 'Mi lista (trabajador)',
-            url: '/#/trabajador',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+            url: `${base}#/trabajador`,
+            icons: [{ src: `${base}icons/icon-192.png`, sizes: '192x192' }],
           },
           {
             name: 'Reporte maestro',
-            url: '/#/supervisor/reporte',
-            icons: [{ src: '/icons/icon-192.png', sizes: '192x192' }],
+            url: `${base}#/supervisor/reporte`,
+            icons: [{ src: `${base}icons/icon-192.png`, sizes: '192x192' }],
           },
         ],
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-        navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//],
+        navigateFallback: `${base}index.html`,
         cleanupOutdatedCaches: true,
       },
       devOptions: {
@@ -66,8 +69,5 @@ export default defineConfig({
   ],
   server: {
     port: 5173,
-    proxy: {
-      '/api': 'http://localhost:3001',
-    },
   },
 })

@@ -10,7 +10,7 @@ import {
   Users,
 } from 'lucide-react'
 import { useAuth } from '../context/AuthContext'
-import { cx } from '../lib/utils'
+import { cx, publicAsset } from '../lib/utils'
 
 const NAV = [
   { to: '/supervisor', label: 'Inicio', icon: LayoutDashboard, end: true },
@@ -35,7 +35,7 @@ export default function SupervisorLayout() {
     <div className="min-h-dvh bg-stone-100 lg:flex">
       <aside className="sticky top-0 hidden h-dvh w-64 shrink-0 flex-col border-r border-stone-200 bg-white lg:flex">
         <div className="flex items-center gap-3 px-5 py-5">
-          <img src="/icons/icon-192.png" alt="" className="h-10 w-10 rounded-xl" />
+          <img src={publicAsset('icons/icon-192.png')} alt="" className="h-10 w-10 rounded-xl" />
           <div className="min-w-0">
             <p className="truncate text-sm font-bold text-stone-900">Cuaderno de Campo</p>
             <p className="text-xs font-medium text-green-700">Supervisor</p>
@@ -79,7 +79,7 @@ export default function SupervisorLayout() {
         <header className="sticky top-0 z-30 border-b border-stone-200 bg-white/95 backdrop-blur lg:hidden">
           <div className="flex items-center justify-between gap-3 px-4 pb-2 pt-safe">
             <div className="flex min-w-0 items-center gap-2.5">
-              <img src="/icons/icon-192.png" alt="" className="h-9 w-9 rounded-xl" />
+              <img src={publicAsset('icons/icon-192.png')} alt="" className="h-9 w-9 rounded-xl" />
               <div className="min-w-0">
                 <p className="truncate text-sm font-bold text-stone-900">Cuaderno de Campo</p>
                 <p className="truncate text-xs text-stone-500">{usuario?.nombre} · Supervisor</p>

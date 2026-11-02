@@ -14,7 +14,7 @@ import {
 
 export default function Envios() {
   const [fecha, setFecha] = useState(todayLocal())
-  const [trabajador, setTrabajador] = useState<number | ''>('')
+  const [trabajador, setTrabajador] = useState<string>('')
   const [envios, setEnvios] = useState<Envio[]>([])
   const [usuarios, setUsuarios] = useState<Usuario[]>([])
   const [cargando, setCargando] = useState(true)
@@ -112,7 +112,7 @@ export default function Envios() {
               className="input py-2.5"
               value={trabajador}
               onChange={(event) =>
-                setTrabajador(event.target.value ? Number(event.target.value) : '')
+                setTrabajador(event.target.value)
               }
             >
               <option value="">Todos</option>

@@ -18,7 +18,8 @@ function homeFor(rol: Rol) {
   return rol === 'supervisor' ? '/supervisor' : '/trabajador'
 }
 
-function Protected({ rol, children }: { rol: Rol; children: ReactNode }) {  const { usuario, cargando } = useAuth()
+function Protected({ rol, children }: { rol: Rol; children: ReactNode }) {
+  const { usuario, cargando } = useAuth()
   if (cargando) return <FullScreenLoader />
   if (!usuario) return <Navigate to="/login" replace />
   if (usuario.rol !== rol) return <Navigate to={homeFor(usuario.rol)} replace />
