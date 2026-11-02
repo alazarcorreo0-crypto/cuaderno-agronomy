@@ -105,7 +105,7 @@ Cambia los PIN desde **Usuarios** antes de usar el sistema con datos reales. El 
 2. En **Tipos**, revisa o crea los tipos de muestra y sus campos.
 3. En **Asignar**, elige trabajador, tipo, fecha y escribe los números de muestra (separados por comas, espacios o saltos de línea).
 4. El trabajador verá la lista en su teléfono; si está abierto, se actualiza en tiempo real.
-5. Cuando el trabajador envíe su lista, revisa **Reporte maestro**, **Historial** y **Envios**.
+5. Cuando el trabajador envíe su lista, revisa **Reporte maestro**, **Historial** y **Envíos**.
 
 ### Trabajador
 
